@@ -102,7 +102,7 @@ def _build_ydl_options(media_type: str, output_template: str) -> dict:
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
-                "preferredquality": "192",
+                "preferredquality": "128",
             }],
         })
     else:  # video
