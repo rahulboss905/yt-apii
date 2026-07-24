@@ -84,6 +84,9 @@ def _build_ydl_options(media_type: str, output_template: str) -> dict:
         # fetch that script from GitHub - without it, most/all formats get
         # silently dropped ("Requested format is not available").
         "remote_components": {"ejs:github"},
+        # Speed: download multiple fragments of a stream in parallel instead
+        # of one at a time.
+        "concurrent_fragment_downloads": 4,
     }
 
     # Attach cookies file if one was configured - lets yt-dlp get past
@@ -93,7 +96,9 @@ def _build_ydl_options(media_type: str, output_template: str) -> dict:
 
     if media_type == "audio":
         common_opts.update({
-            "format": "bestaudio/best",
+            # Prefer plain-HTTPS audio streams over HLS (m3u8) - m3u8 is
+            # segmented and noticeably slower to fetch than a direct stream.
+            "format": "bestaudio[protocol!=m3u8]/bestaudio/best",
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
@@ -102,9 +107,13 @@ def _build_ydl_options(media_type: str, output_template: str) -> dict:
         })
     else:  # video
         common_opts.update({
-            # Best mp4 video+audio, falling back to best overall and letting
-            # yt-dlp/ffmpeg merge into an mp4 container.
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            # Same idea for video: avoid the slower HLS variants when a
+            # direct-HTTPS mp4/webm option of the same quality exists.
+            "format": (
+                "bestvideo[ext=mp4][protocol!=m3u8]+bestaudio[ext=m4a][protocol!=m3u8]"
+                "/best[ext=mp4][protocol!=m3u8]"
+                "/bestvideo+bestaudio/best"
+            ),
             "merge_output_format": "mp4",
         })
 
