@@ -87,15 +87,6 @@ def _build_ydl_options(media_type: str, output_template: str) -> dict:
         # Speed: download multiple fragments of a stream in parallel instead
         # of one at a time.
         "concurrent_fragment_downloads": 4,
-        # Speed: use aria2c to fetch the file over several parallel
-        # connections instead of yt-dlp's single-connection default.
-        # IMPORTANT: aria2c must actually be installed (`sudo apt install
-        # aria2`) - if it's missing, yt-dlp will error out rather than
-        # silently falling back to its built-in downloader.
-        "external_downloader": "aria2c",
-        "external_downloader_args": {
-            "aria2c": ["-x", "16", "-s", "16", "-k", "1M"]
-        },
     }
 
     # Attach cookies file if one was configured - lets yt-dlp get past
