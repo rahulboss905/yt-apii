@@ -16,6 +16,7 @@ content you have the right to download.
 """
 
 import os
+import re
 import uuid
 import shutil
 import logging
@@ -77,6 +78,12 @@ def _build_ydl_options(media_type: str, output_template: str) -> dict:
         "no_warnings": True,
         # Fail fast instead of hanging on slow/broken streams
         "socket_timeout": 30,
+        # YouTube now serves a JS "challenge" to verify the client. yt-dlp
+        # solves this using an external script (EJS) run via a JS runtime
+        # (we installed Deno on the host for this). This permits yt-dlp to
+        # fetch that script from GitHub - without it, most/all formats get
+        # silently dropped ("Requested format is not available").
+        "remote_components": {"ejs:github"},
     }
 
     # Attach cookies file if one was configured - lets yt-dlp get past
@@ -128,9 +135,43 @@ def download(
     if type not in ("audio", "video"):
         raise HTTPException(status_code=400, detail="`type` must be 'audio' or 'video'")
 
-    # --- 3. Normalize a bare video ID into a full URL ----------------------
-    # Accepts either a full URL or a raw 11-char YouTube video ID.
-    video_url = url if url.startswith("http") else f"https://www.youtube.com/watch?v={url}"
+    # --- 3. Normalize the `url` param into something yt-dlp understands ----
+    # Accepts three forms:
+    #   1. A full URL (starts with "http")               -> used as-is
+    #   2. A raw 11-character YouTube video ID            -> turned into a watch URL
+    #   3. Anything else (a song/search query)            -> treated as a YouTube search,
+    #                                                          first result is used
+    _YT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+    if url.startswith("http"):
+        video_url = url
+    elif _YT_ID_RE.match(url):
+        video_url = f"https://www.youtube.com/watch?v={url}"
+    else:
+        # Treat as a search query: resolve it to a concrete video URL first
+        # (download=False, cheap metadata-only lookup) so the actual download
+        # step below always deals with a single real video, same as before.
+        try:
+            with yt_dlp.YoutubeDL({
+                "quiet": True,
+                "no_warnings": True,
+                "noplaylist": True,
+                "remote_components": {"ejs:github"},
+            }) as search_ydl:
+                search_result = search_ydl.extract_info(f"ytsearch1:{url}", download=False)
+            entries = search_result.get("entries") or []
+            if not entries:
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": "no_results", "detail": f"No YouTube results found for '{url}'"},
+                )
+            video_url = entries[0]["webpage_url"]
+        except Exception as exc:
+            logger.exception("Search failed for query=%s", url)
+            return JSONResponse(
+                status_code=500,
+                content={"error": "search_failed", "detail": str(exc)},
+            )
 
     # --- 4. Download via yt-dlp --------------------------------------------
     job_id = uuid.uuid4().hex
